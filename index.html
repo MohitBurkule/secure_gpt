@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Chat Assistant with Editing, Think Blocks & Code Formatting</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    /* Global Styles */
+    body {
+      margin: 0;
+      padding: 0;
+      font-family: 'Arial', sans-serif;
+      background: #1e1e1e;
+      color: #e0e0e0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    /* Header Bar */
+    header {
+      background-color: #2b2b2b;
+      padding: 10px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #444;
+    }
+    header h1 {
+      margin: 0;
+      font-size: 1.4em;
+    }
+    header .model-controls {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    header label {
+      font-size: 0.9em;
+    }
+    header select,
+    header button {
+      padding: 6px 10px;
+      font-size: 0.9em;
+      border: none;
+      border-radius: 4px;
+    }
+    header button {
+      background-color: #0066cc;
+      color: #fff;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    header button:hover:not(:disabled) {
+      background-color: #005bb5;
+    }
+    header button:disabled {
+      background-color: #555;
+      cursor: not-allowed;
+    }
+    /* Main App Layout */
+    .container {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+    }
+    /* Left Sidebar: Chat Sessions */
+    #left-sidebar {
+      width: 20%;
+      background-color: #252526;
+      border-right: 1px solid #444;
+      padding: 10px;
+      overflow-y: auto;
+    }
+    #left-sidebar h2 {
+      font-size: 1em;
+      margin-bottom: 10px;
+      border-bottom: 1px solid #444;
+      padding-bottom: 5px;
+    }
+    #new-chat-btn {
+      width: 100%;
+      padding: 8px;
+      margin-bottom: 10px;
+      border: none;
+      border-radius: 4px;
+      background-color: #0066cc;
+      color: #fff;
+      cursor: pointer;
+      transition: background-color 0.2s;
+    }
+    #new-chat-btn:hover {
+      background-color: #005bb5;
+    }
+    #chat-sessions {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+    }
+    #chat-sessions li {
+      padding: 8px;
+      margin-bottom: 4px;
+      background-color: #333;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+    /* Main Chat Area */
+    #main-content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      background: #1e1e1e;
+      padding: 10px;
+      overflow: hidden;
+    }
+    #chat-box {
+      flex: 1;
+      background: #2d2d30;
+      border-radius: 8px;
+      padding: 15px;
+      overflow-y: auto;
+      margin-bottom: 10px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+    }
+    .chat-input-container {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    .chat-input-container input[type="text"] {
+      flex: 1;
+      padding: 10px;
+      border-radius: 4px;
+      border: 1px solid #555;
+      background-color: #333;
+      color: #e0e0e0;
+      font-size: 1em;
+    }
+    .chat-input-container button {
+      padding: 10px 15px;
+      border: none;
+      border-radius: 4px;
+      background-color: #0066cc;
+      color: #fff;
+      cursor: pointer;
+      transition: background-color 0.2s;
+      font-size: 1em;
+    }
+    .chat-input-container button:hover:not(:disabled) {
+      background-color: #005bb5;
+    }
+    .chat-input-container button:disabled {
+      background-color: #555;
+      cursor: not-allowed;
+    }
+    /* Message Containers */
+    .message-container {
+      margin: 8px 0;
+      padding: 10px;
+      border-radius: 8px;
+      word-break: break-word;
+      position: relative;
+    }
+    .assistant {
+      background-color: #444;
+      text-align: left;
+    }
+    .user {
+      background-color: #007acc;
+      text-align: right;
+    }
+    .system {
+      background-color: #555;
+      font-style: italic;
+    }
+    .editable {
+      border: 1px dashed #aaa;
+      padding: 5px;
+    }
+    /* Code Block Styling */
+    pre {
+      background-color: #1e1e1e;
+      padding: 10px;
+      border-radius: 4px;
+      overflow-x: auto;
+      margin: 10px 0;
+    }
+    code {
+      font-family: 'Courier New', monospace;
+      color: #dcdcdc;
+    }
+    /* Collapsible think section */
+    .think-container {
+      margin-top: 8px;
+      background-color: #333;
+      border-left: 4px solid #888;
+      padding: 5px 10px;
+      font-style: italic;
+    }
+    .think-header {
+      cursor: pointer;
+      font-size: 0.9em;
+      color: #ccc;
+    }
+    .think-content {
+      display: none;
+      padding-top: 5px;
+      font-size: 0.85em;
+      color: #bbb;
+    }
+    /* Right Sidebar: Settings */
+    #right-sidebar {
+      width: 20%;
+      background-color: #252526;
+      border-left: 1px solid #444;
+      padding: 10px;
+      overflow-y: auto;
+    }
+    #right-sidebar h2 {
+      font-size: 1em;
+      margin-bottom: 10px;
+      border-bottom: 1px solid #444;
+      padding-bottom: 5px;
+    }
+    #settings {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    #settings label {
+      font-size: 0.9em;
+    }
+    #settings input[type="number"],
+    #settings textarea {
+      width: 100%;
+      padding: 6px;
+      border-radius: 4px;
+      border: 1px solid #555;
+      background-color: #333;
+      color: #e0e0e0;
+    }
+    #settings button {
+      padding: 8px;
+      border: none;
+      border-radius: 4px;
+      background-color: #0066cc;
+      color: #fff;
+      cursor: pointer;
+      font-size: 0.9em;
+    }
+    /* Download Status Indicator */
+    #download-status {
+      margin-top: 5px;
+      padding: 8px;
+      background: #333;
+      border: 1px solid #555;
+      border-radius: 5px;
+      font-size: 0.9em;
+      text-align: center;
+    }
+    .spinner {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #0066cc;
+      border-radius: 50%;
+      width: 16px;
+      height: 16px;
+      animation: spin 1s linear infinite;
+      display: inline-block;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
+    .checkmark {
+      color: #00cc00;
+      font-weight: bold;
+      margin-right: 8px;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <!-- Header with Model Selection and Chat Controls -->
+  <header>
+    <h1>Chat Assistant</h1>
+    <div class="model-controls">
+      <label for="model-selection">Model:</label>
+      <select id="model-selection"></select>
+      <button id="load-model">Load Model</button>
+      <button id="clear-chat">Clear Chat</button>
+    </div>
+  </header>
+  <!-- Main Container with Left Sidebar, Main Chat Area, and Right Sidebar -->
+  <div class="container">
+    <!-- Left Sidebar: Chat Sessions List -->
+    <aside id="left-sidebar">
+      <button id="new-chat-btn">New Chat</button>
+      <h2>Chats</h2>
+      <ul id="chat-sessions">
+        <!-- Chat sessions will be added here -->
+      </ul>
+    </aside>
+    <!-- Main Chat Content -->
+    <main id="main-content">
+      <div id="chat-box"></div>
+      <div class="chat-input-container">
+        <input type="text" id="user-input" placeholder="Type your message..." />
+        <button id="send" disabled>Send</button>
+        <button id="stop" disabled>Stop</button>
+      </div>
+      <p id="download-status" class="hidden"></p>
+    </main>
+    <!-- Right Sidebar: Settings & Export -->
+    <aside id="right-sidebar">
+      <h2>Settings</h2>
+      <div id="settings">
+        <label for="system-prompt">System Prompt:</label>
+        <textarea id="system-prompt" rows="3">You are a helpful assistant.</textarea>
+        <label for="temperature">Temperature:</label>
+        <input type="number" id="temperature" value="0.2" min="0" max="1" step="0.05" />
+        <label for="top-p">Top P:</label>
+        <input type="number" id="top-p" value="1" min="0" max="1" step="0.05" />
+        <button id="export-chat">Export Chat</button>
+        <h2>Downloaded Models</h2>
+        <ul id="downloaded-models">
+          <!-- Downloaded models will be listed here -->
+        </ul>
+      </div>
+    </aside>
+  </div>
+
+  <script type="module">
+    import * as webllm from "https://esm.run/@mlc-ai/web-llm";
+
+    // Chat sessions storage
+    let chats = [];
+    let currentChatIndex = 0;
+
+    // Grab initial system prompt from settings.
+    let initialSystemMessage = {
+      role: "system",
+      content: document.getElementById("system-prompt").value.trim()
+    };
+
+    // Conversation messages start with the system prompt.
+    let messages = [initialSystemMessage];
+
+    // Get available models (filtering for WebGPU‑enabled models as needed).
+    const availableModels = webllm.prebuiltAppConfig.model_list
+      .filter(m => m.model_id.includes("q4f32"))
+      .map(m => m.model_id);
+    let selectedModel = availableModels[0] || "SmolLM2-360M-Instruct-q4f32_1-MLC";
+    const downloadedModels = new Set();
+
+    const engine = new webllm.MLCEngine();
+    let downloadStartTime = null;
+    let isStreaming = false;
+    let stopRequested = false;
+    let abortController = null;
+
+    // Process <think> tokens and wrap them in a collapsible block.
+    function processThinkTokens(text) {
+      const thinkRegex = /<think>(.*?)<\/think>/g;
+      let match, lastIndex = 0;
+      const fragments = [];
+      while ((match = thinkRegex.exec(text)) !== null) {
+        if (match.index > lastIndex) {
+          fragments.push(document.createTextNode(text.substring(lastIndex, match.index)));
+        }
+        const container = document.createElement("div");
+        container.classList.add("think-container");
+        const header = document.createElement("div");
+        header.classList.add("think-header");
+        header.textContent = "Show model thought ▼";
+        const content = document.createElement("div");
+        content.classList.add("think-content");
+        content.textContent = match[1].trim();
+        content.style.display = "none";
+        header.addEventListener("click", () => {
+          if (content.style.display === "none") {
+            content.style.display = "block";
+            header.textContent = "Hide model thought ▲";
+          } else {
+            content.style.display = "none";
+            header.textContent = "Show model thought ▼";
+          }
+        });
+        container.appendChild(header);
+        container.appendChild(content);
+        fragments.push(container);
+        lastIndex = thinkRegex.lastIndex;
+      }
+      if (lastIndex < text.length) {
+        fragments.push(document.createTextNode(text.substring(lastIndex)));
+      }
+      return fragments;
+    }
+
+    // Process content to detect code blocks (```lang\n...\n```) and also process think tokens.
+    function processContent(text) {
+      const fragment = document.createDocumentFragment();
+      const codeRegex = /```(\w*)\n([\s\S]*?)```/g;
+      let lastIndex = 0;
+      let match;
+      while ((match = codeRegex.exec(text)) !== null) {
+        if(match.index > lastIndex) {
+          const plainText = text.substring(lastIndex, match.index);
+          const parts = processThinkTokens(plainText);
+          parts.forEach(part => fragment.appendChild(part));
+        }
+        const pre = document.createElement("pre");
+        const code = document.createElement("code");
+        if(match[1]) {
+          code.classList.add(match[1]);
+        }
+        code.textContent = match[2];
+        pre.appendChild(code);
+        fragment.appendChild(pre);
+        lastIndex = codeRegex.lastIndex;
+      }
+      if(lastIndex < text.length) {
+        const plainText = text.substring(lastIndex);
+        const parts = processThinkTokens(plainText);
+        parts.forEach(part => fragment.appendChild(part));
+      }
+      return fragment;
+    }
+
+    // Append a message to the chat box. Every message gets a data-index attribute.
+    function appendMessage(message, isTemp = false, index = null) {
+      const chatBox = document.getElementById("chat-box");
+      const container = document.createElement("div");
+      container.classList.add("message-container", message.role);
+      if(index !== null) {
+        container.dataset.index = index;
+      } else {
+        container.dataset.index = messages.length - 1;
+      }
+      // Allow editing on double-click (for any message type)
+      container.addEventListener("dblclick", () => {
+        container.contentEditable = true;
+        container.classList.add("editable");
+      });
+      container.addEventListener("blur", () => {
+        container.contentEditable = false;
+        container.classList.remove("editable");
+        const idx = container.dataset.index;
+        messages[idx].content = container.innerText;
+      });
+      // Render content using processContent (which handles code blocks and think tokens)
+      container.innerHTML = "";
+      container.appendChild(processContent(message.content));
+      if(isTemp) {
+        container.dataset.temp = "true";
+      }
+      chatBox.appendChild(container);
+      chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    // Update the last message in the chat box (re-rendering with processing).
+    function updateLastMessage(content) {
+      const messagesDOM = document.getElementById("chat-box").querySelectorAll(".message-container");
+      const lastMessageDOM = messagesDOM[messagesDOM.length - 1];
+      if(lastMessageDOM) {
+        lastMessageDOM.innerHTML = "";
+        lastMessageDOM.appendChild(processContent(content));
+      }
+    }
+
+    function clearChat() {
+      document.getElementById("chat-box").innerHTML = "";
+      messages = [initialSystemMessage];
+    }
+
+    // Create a new chat session.
+    function addNewChat(defaultLabel) {
+      if(chats[currentChatIndex]) {
+        chats[currentChatIndex].messages = messages.slice();
+      }
+      const newChat = {
+        label: defaultLabel || "New Chat",
+        messages: [initialSystemMessage]
+      };
+      chats.push(newChat);
+      currentChatIndex = chats.length - 1;
+      updateChatSessionsList();
+      clearChat();
+      messages = [initialSystemMessage];
+    }
+
+    // Auto label chat based on the first assistant message.
+    function autoLabelChat(assistantContent) {
+      const label = assistantContent.split(/[.!?]/)[0].split(" ").slice(0, 5).join(" ") || "Chat";
+      chats[currentChatIndex].label = label;
+      updateChatSessionsList();
+    }
+
+    function updateChatSessionsList() {
+      const list = document.getElementById("chat-sessions");
+      list.innerHTML = "";
+      chats.forEach((chat, idx) => {
+        const li = document.createElement("li");
+        li.textContent = chat.label;
+        li.addEventListener("click", () => {
+          currentChatIndex = idx;
+          messages = chats[idx].messages.slice();
+          renderCurrentChat();
+        });
+        list.appendChild(li);
+      });
+    }
+
+    function renderCurrentChat() {
+      const chatBox = document.getElementById("chat-box");
+      chatBox.innerHTML = "";
+      messages.forEach((m, i) => {
+        appendMessage(m, false, i);
+      });
+    }
+
+    // Engine progress callback.
+    function updateEngineInitProgressCallback(report) {
+      let statusText = "";
+      const spinnerHTML = '<span class="spinner"></span>';
+      if(report.text && report.text.toLowerCase().includes("cache")) {
+        statusText = report.text;
+      } else if(report.progress === 0) {
+        const paramMatch = selectedModel.match(/-(\d+(?:\.\d+)?[MB])-/);
+        const quantMatch = selectedModel.match(/-(q4f(?:32|16))_/i);
+        const modelName = selectedModel.split("-")[0] || selectedModel;
+        const parameters = paramMatch ? paramMatch[1] : "unknown parameters";
+        const quant = quantMatch ? quantMatch[1] : "unknown quantization";
+        statusText = `Preparing to download ${selectedModel} (Model: ${modelName}, Parameters: ${parameters}, Quantization: ${quant}).`;
+      } else if(report.progress > 0 && report.progress < 1) {
+        const elapsed = (Date.now() - downloadStartTime) / 1000;
+        const estimatedTotal = elapsed / report.progress;
+        const remaining = Math.max(estimatedTotal - elapsed, 0);
+        statusText = `Downloading ${selectedModel}: ${(report.progress * 100).toFixed(1)}% complete. Estimated ${Math.ceil(remaining)} sec remaining.`;
+      } else if(report.progress === 1) {
+        const totalTime = ((Date.now() - downloadStartTime) / 1000).toFixed(1);
+        statusText = `Download completed in ${totalTime} sec.`;
+      }
+      const statusEl = document.getElementById("download-status");
+      if(report.progress === 1) {
+        statusEl.innerHTML = `<span class="checkmark">&#10003;</span>${statusText}`;
+        downloadedModels.add(selectedModel);
+        updateDownloadedModelsList();
+      } else {
+        statusEl.innerHTML = `${spinnerHTML}${statusText}`;
+      }
+    }
+    engine.setInitProgressCallback(updateEngineInitProgressCallback);
+
+    async function initializeWebLLMEngine() {
+      downloadStartTime = Date.now();
+      document.getElementById("download-status").classList.remove("hidden");
+      selectedModel = document.getElementById("model-selection").value;
+      initialSystemMessage.content = document.getElementById("system-prompt").value.trim();
+      messages[0] = initialSystemMessage;
+      const temperature = parseFloat(document.getElementById("temperature").value) || 0.2;
+      const top_p = parseFloat(document.getElementById("top-p").value) || 1;
+      const config = { temperature, top_p };
+      await engine.reload(selectedModel, config);
+    }
+
+    window.addEventListener("load", async () => {
+      while (!webllm.prebuiltAppConfig ||
+             !webllm.prebuiltAppConfig.model_list ||
+             webllm.prebuiltAppConfig.model_list.length === 0) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      populateModelSelection();
+      await initializeWebLLMEngine();
+      document.getElementById("send").disabled = false;
+      document.getElementById("stop").disabled = false;
+      addNewChat("New Chat");
+    });
+
+    function populateModelSelection() {
+      const modelSelect = document.getElementById("model-selection");
+      availableModels.forEach((modelId) => {
+        const option = document.createElement("option");
+        option.value = modelId;
+        option.textContent = modelId;
+        modelSelect.appendChild(option);
+      });
+      modelSelect.value = selectedModel;
+    }
+
+    function updateDownloadedModelsList() {
+      const list = document.getElementById("downloaded-models");
+      list.innerHTML = "";
+      downloadedModels.forEach(model => {
+        const li = document.createElement("li");
+        li.textContent = model;
+        list.appendChild(li);
+      });
+    }
+
+    // Streaming generation with stop support.
+    async function streamingGenerating(streamMessages, onUpdate, onFinish, onError) {
+      isStreaming = true;
+      stopRequested = false;
+      abortController = new AbortController();
+      let curMessage = "";
+      try {
+        const completion = await engine.chat.completions.create({
+          stream: true,
+          messages: streamMessages,
+          signal: abortController.signal
+        });
+        for await (const chunk of completion) {
+          if(stopRequested) break;
+          const curDelta = chunk.choices[0]?.delta?.content;
+          if(curDelta) {
+            curMessage += curDelta;
+            onUpdate(curMessage);
+          }
+        }
+        isStreaming = false;
+        onFinish(curMessage);
+      } catch (err) {
+        isStreaming = false;
+        if(err.name === "AbortError") {
+          onFinish(curMessage);
+        } else {
+          onError(err);
+        }
+      }
+    }
+
+    function onMessageSend() {
+      const input = document.getElementById("user-input").value.trim();
+      if(input.length === 0) return;
+      document.getElementById("send").disabled = true;
+      const userMessage = { role: "user", content: input };
+      messages.push(userMessage);
+      appendMessage(userMessage, false, messages.length - 1);
+      document.getElementById("user-input").value = "";
+      const tempMessage = { role: "assistant", content: "…" };
+      appendMessage(tempMessage, true, messages.length);
+      const useHistory = true;
+      const streamMessages = useHistory ? messages : [messages[0], userMessage];
+      streamingGenerating(
+        streamMessages,
+        (partialResponse) => { updateLastMessage(partialResponse); },
+        (finalMessage) => {
+          updateLastMessage(finalMessage);
+          messages.push({ role: "assistant", content: finalMessage });
+          document.getElementById("send").disabled = false;
+          if(currentChatIndex >= 0 && chats[currentChatIndex].label === "New Chat") {
+            autoLabelChat(finalMessage);
+          }
+        },
+        (err) => {
+          console.error(err);
+          updateLastMessage("Error: " + err);
+          document.getElementById("send").disabled = false;
+        }
+      );
+    }
+
+    // Stop streaming mid-response.
+    function onStop() {
+      if(isStreaming && abortController) {
+        stopRequested = true;
+        abortController.abort();
+        document.getElementById("send").disabled = false;
+      }
+    }
+
+    async function loadModel() {
+      selectedModel = document.getElementById("model-selection").value;
+      downloadStartTime = Date.now();
+      const paramMatch = selectedModel.match(/-(\d+(?:\.\d+)?[MBb])-/);
+      const quantMatch = selectedModel.match(/-(q4f(?:32|16))_/i);
+      const modelName = selectedModel.split("-")[0] || selectedModel;
+      const parameters = paramMatch ? paramMatch[1] : "unknown parameters";
+      const quant = quantMatch ? quantMatch[1] : "unknown quantization";
+      const initialStatus = `Preparing to download ${selectedModel} (Model: ${modelName}, Parameters: ${parameters}, Quantization: ${quant}).`;
+      const statusEl = document.getElementById("download-status");
+      statusEl.innerHTML = `<span class="spinner"></span>${initialStatus}`;
+      statusEl.classList.remove("hidden");
+      await initializeWebLLMEngine();
+    }
+
+    // Export chat to a text file.
+    function exportChat() {
+      const dataStr = "data:text/plain;charset=utf-8," + encodeURIComponent(
+        messages.map(m => `${m.role}: ${m.content}`).join("\n")
+      );
+      const downloadAnchorNode = document.createElement("a");
+      downloadAnchorNode.setAttribute("href", dataStr);
+      downloadAnchorNode.setAttribute("download", "chat_export.txt");
+      document.body.appendChild(downloadAnchorNode);
+      downloadAnchorNode.click();
+      downloadAnchorNode.remove();
+    }
+
+    document.getElementById("send").addEventListener("click", onMessageSend);
+    document.getElementById("stop").addEventListener("click", onStop);
+    document.getElementById("clear-chat").addEventListener("click", clearChat);
+    document.getElementById("load-model").addEventListener("click", loadModel);
+    document.getElementById("export-chat").addEventListener("click", exportChat);
+    document.getElementById("new-chat-btn").addEventListener("click", () => addNewChat("New Chat"));
+  </script>
+</body>
+</html>
