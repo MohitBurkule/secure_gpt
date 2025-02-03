@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Chat Assistant with Editing, Think Blocks & Code Formatting</title>
+  <title>Chat Assistant with Model Tools, Tool Feedback & Chat Deletion</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <style>
     /* Global Styles */
@@ -97,11 +97,23 @@
       margin: 0;
     }
     #chat-sessions li {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
       padding: 8px;
       margin-bottom: 4px;
       background-color: #333;
       border-radius: 4px;
       cursor: pointer;
+    }
+    #chat-sessions li button.delete-chat {
+      background-color: #cc0000;
+      border: none;
+      border-radius: 4px;
+      color: #fff;
+      font-size: 0.8em;
+      cursor: pointer;
+      margin-left: 5px;
     }
     /* Main Chat Area */
     #main-content {
@@ -168,7 +180,7 @@
       background-color: #007acc;
       text-align: right;
     }
-    .system {
+    .system, .tool {
       background-color: #555;
       font-style: italic;
     }
@@ -207,7 +219,7 @@
       font-size: 0.85em;
       color: #bbb;
     }
-    /* Right Sidebar: Settings */
+    /* Right Sidebar: Settings & Tools */
     #right-sidebar {
       width: 20%;
       background-color: #252526;
@@ -221,12 +233,13 @@
       border-bottom: 1px solid #444;
       padding-bottom: 5px;
     }
-    #settings {
+    #settings, #tools {
       display: flex;
       flex-direction: column;
       gap: 10px;
+      margin-bottom: 15px;
     }
-    #settings label {
+    #settings label, #tools label {
       font-size: 0.9em;
     }
     #settings input[type="number"],
@@ -238,7 +251,7 @@
       background-color: #333;
       color: #e0e0e0;
     }
-    #settings button {
+    #settings button, #tools button {
       padding: 8px;
       border: none;
       border-radius: 4px;
@@ -310,17 +323,34 @@
       </div>
       <p id="download-status" class="hidden"></p>
     </main>
-    <!-- Right Sidebar: Settings & Export -->
+    <!-- Right Sidebar: Settings & Tools -->
     <aside id="right-sidebar">
       <h2>Settings</h2>
       <div id="settings">
         <label for="system-prompt">System Prompt:</label>
-        <textarea id="system-prompt" rows="3">You are a helpful assistant.</textarea>
+        <!-- The default system prompt includes tool API instructions -->
+        <textarea id="system-prompt" rows="4">
+You are a helpful assistant.
+You have access to the following tools:
+1. calculator(a, b, operation) – performs arithmetic. Example: calculator(5,3,"+").
+2. text_search(key, window=10) – searches an uploaded document for the key and returns surrounding text.
+After every response, a chat summary will be generated automatically.
+When you need a tool, call it exactly as shown.
+        </textarea>
         <label for="temperature">Temperature:</label>
         <input type="number" id="temperature" value="0.2" min="0" max="1" step="0.05" />
         <label for="top-p">Top P:</label>
         <input type="number" id="top-p" value="1" min="0" max="1" step="0.05" />
         <button id="export-chat">Export Chat</button>
+      </div>
+      <div id="tools">
+        <h2>Tools</h2>
+        <!-- Although the model now calls tools automatically, these buttons are available for testing -->
+        <button id="summarize-chat">Summarize Chat</button>
+        <button id="upload-file">Upload File</button>
+        <input type="file" id="file-upload" accept=".txt,.md,.html,.tex" style="display:none;">
+      </div>
+      <div id="downloaded-models-section">
         <h2>Downloaded Models</h2>
         <ul id="downloaded-models">
           <!-- Downloaded models will be listed here -->
@@ -332,39 +362,109 @@
   <script type="module">
     import * as webllm from "https://esm.run/@mlc-ai/web-llm";
 
-    // Chat sessions storage
+    /***** Local Storage & Chat Session Handling *****/
     let chats = [];
     let currentChatIndex = 0;
+    function saveChats() {
+      localStorage.setItem("chats", JSON.stringify(chats));
+    }
+    function loadChats() {
+      const stored = localStorage.getItem("chats");
+      if (stored) {
+        chats = JSON.parse(stored);
+        updateChatSessionsList();
+        if (chats.length > 0) {
+          currentChatIndex = 0;
+          messages = chats[currentChatIndex].messages;
+          renderCurrentChat();
+        }
+      }
+    }
 
-    // Grab initial system prompt from settings.
+    /***** Conversation Data *****/
+    // Grab initial system prompt (with tool API instructions)
     let initialSystemMessage = {
       role: "system",
       content: document.getElementById("system-prompt").value.trim()
     };
-
-    // Conversation messages start with the system prompt.
     let messages = [initialSystemMessage];
 
-    // Get available models (filtering for WebGPU‑enabled models as needed).
+    // For file upload: store the uploaded document text.
+    let uploadedDocument = "";
+
+    // Get available models (filtering for WebGPU‑enabled models).
     const availableModels = webllm.prebuiltAppConfig.model_list
       .filter(m => m.model_id.includes("q4f32"))
       .map(m => m.model_id);
     let selectedModel = availableModels[0] || "SmolLM2-360M-Instruct-q4f32_1-MLC";
     const downloadedModels = new Set();
-
     const engine = new webllm.MLCEngine();
     let downloadStartTime = null;
     let isStreaming = false;
     let stopRequested = false;
     let abortController = null;
 
-    // Process <think> tokens and wrap them in a collapsible block.
+    /***** Tool Functions *****/
+    function runCalculatorTool(match) {
+      const a = parseFloat(match[1]);
+      const b = parseFloat(match[2]);
+      const op = match[3];
+      let result;
+      switch(op) {
+        case '+': result = a + b; break;
+        case '-': result = a - b; break;
+        case '*': result = a * b; break;
+        case '/': result = b !== 0 ? a / b : "Error: Division by zero"; break;
+        default: result = "Error: Unknown operation";
+      }
+      return result;
+    }
+    function runTextSearchTool(match) {
+      const key = match[1].trim();
+      const windowVal = parseInt(match[2]);
+      if(!uploadedDocument || uploadedDocument.length === 0) {
+        return "No document uploaded.";
+      }
+      const index = uploadedDocument.toLowerCase().indexOf(key.toLowerCase());
+      if(index === -1) return "Key not found.";
+      const start = Math.max(0, index - windowVal);
+      const end = Math.min(uploadedDocument.length, index + key.length + windowVal);
+      return uploadedDocument.substring(start, end);
+    }
+    // Parse and handle tool calls within the model’s output.
+    function handleToolCalls(text) {
+      let modifiedText = text;
+      // Handle calculator calls.
+      const calcRegex = /calculator\(\s*([\d\.\-]+)\s*,\s*([\d\.\-]+)\s*,\s*["']?([\+\-\*\/])["']?\s*\)/gi;
+      let match;
+      while ((match = calcRegex.exec(text)) !== null) {
+        const calcResult = runCalculatorTool(match);
+        const toolCall = `calculator(${match[1]}, ${match[2]}, "${match[3]}")`;
+        const toolMsg = { role: "tool", content: `Tool call: ${toolCall} → ${calcResult}` };
+        messages.push(toolMsg);
+        appendMessage(toolMsg, false, messages.length - 1);
+        modifiedText = modifiedText.replace(match[0], "");
+      }
+      // Handle text_search calls.
+      const textSearchRegex = /text_search\(\s*([^,]+)\s*,\s*window\s*=\s*(\d+)\s*\)/gi;
+      while ((match = textSearchRegex.exec(text)) !== null) {
+        const searchResult = runTextSearchTool(match);
+        const toolCall = `text_search(${match[1]}, window=${match[2]})`;
+        const toolMsg = { role: "tool", content: `Tool call: ${toolCall} → ${searchResult}` };
+        messages.push(toolMsg);
+        appendMessage(toolMsg, false, messages.length - 1);
+        modifiedText = modifiedText.replace(match[0], "");
+      }
+      return modifiedText;
+    }
+
+    /***** Content Processing (Code Blocks & Think Tokens) *****/
     function processThinkTokens(text) {
       const thinkRegex = /<think>(.*?)<\/think>/g;
       let match, lastIndex = 0;
       const fragments = [];
       while ((match = thinkRegex.exec(text)) !== null) {
-        if (match.index > lastIndex) {
+        if(match.index > lastIndex) {
           fragments.push(document.createTextNode(text.substring(lastIndex, match.index)));
         }
         const container = document.createElement("div");
@@ -377,7 +477,7 @@
         content.textContent = match[1].trim();
         content.style.display = "none";
         header.addEventListener("click", () => {
-          if (content.style.display === "none") {
+          if(content.style.display === "none") {
             content.style.display = "block";
             header.textContent = "Hide model thought ▲";
           } else {
@@ -390,13 +490,11 @@
         fragments.push(container);
         lastIndex = thinkRegex.lastIndex;
       }
-      if (lastIndex < text.length) {
+      if(lastIndex < text.length) {
         fragments.push(document.createTextNode(text.substring(lastIndex)));
       }
       return fragments;
     }
-
-    // Process content to detect code blocks (```lang\n...\n```) and also process think tokens.
     function processContent(text) {
       const fragment = document.createDocumentFragment();
       const codeRegex = /```(\w*)\n([\s\S]*?)```/g;
@@ -426,17 +524,12 @@
       return fragment;
     }
 
-    // Append a message to the chat box. Every message gets a data-index attribute.
+    /***** UI Rendering & Editing *****/
     function appendMessage(message, isTemp = false, index = null) {
       const chatBox = document.getElementById("chat-box");
       const container = document.createElement("div");
       container.classList.add("message-container", message.role);
-      if(index !== null) {
-        container.dataset.index = index;
-      } else {
-        container.dataset.index = messages.length - 1;
-      }
-      // Allow editing on double-click (for any message type)
+      container.dataset.index = index !== null ? index : messages.length - 1;
       container.addEventListener("dblclick", () => {
         container.contentEditable = true;
         container.classList.add("editable");
@@ -446,8 +539,11 @@
         container.classList.remove("editable");
         const idx = container.dataset.index;
         messages[idx].content = container.innerText;
+        if(chats[currentChatIndex]) {
+          chats[currentChatIndex].messages = messages.slice();
+          saveChats();
+        }
       });
-      // Render content using processContent (which handles code blocks and think tokens)
       container.innerHTML = "";
       container.appendChild(processContent(message.content));
       if(isTemp) {
@@ -456,8 +552,6 @@
       chatBox.appendChild(container);
       chatBox.scrollTop = chatBox.scrollHeight;
     }
-
-    // Update the last message in the chat box (re-rendering with processing).
     function updateLastMessage(content) {
       const messagesDOM = document.getElementById("chat-box").querySelectorAll(".message-container");
       const lastMessageDOM = messagesDOM[messagesDOM.length - 1];
@@ -466,50 +560,61 @@
         lastMessageDOM.appendChild(processContent(content));
       }
     }
-
     function clearChat() {
       document.getElementById("chat-box").innerHTML = "";
       messages = [initialSystemMessage];
+      if(chats[currentChatIndex]) {
+        chats[currentChatIndex].messages = messages.slice();
+        saveChats();
+      }
     }
-
-    // Create a new chat session.
     function addNewChat(defaultLabel) {
       if(chats[currentChatIndex]) {
         chats[currentChatIndex].messages = messages.slice();
       }
-      const newChat = {
-        label: defaultLabel || "New Chat",
-        messages: [initialSystemMessage]
-      };
+      const newChat = { label: defaultLabel || "New Chat", messages: [initialSystemMessage] };
       chats.push(newChat);
       currentChatIndex = chats.length - 1;
       updateChatSessionsList();
       clearChat();
       messages = [initialSystemMessage];
+      saveChats();
     }
-
-    // Auto label chat based on the first assistant message.
-    function autoLabelChat(assistantContent) {
-      const label = assistantContent.split(/[.!?]/)[0].split(" ").slice(0, 5).join(" ") || "Chat";
-      chats[currentChatIndex].label = label;
-      updateChatSessionsList();
-    }
-
     function updateChatSessionsList() {
       const list = document.getElementById("chat-sessions");
       list.innerHTML = "";
       chats.forEach((chat, idx) => {
         const li = document.createElement("li");
-        li.textContent = chat.label;
-        li.addEventListener("click", () => {
+        const span = document.createElement("span");
+        span.textContent = chat.label;
+        span.addEventListener("click", () => {
           currentChatIndex = idx;
           messages = chats[idx].messages.slice();
           renderCurrentChat();
         });
+        li.appendChild(span);
+        const deleteBtn = document.createElement("button");
+        deleteBtn.textContent = "Delete";
+        deleteBtn.classList.add("delete-chat");
+        deleteBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if(confirm("Delete this chat?")) {
+            chats.splice(idx, 1);
+            if(chats.length === 0) {
+              addNewChat("New Chat");
+            } else {
+              currentChatIndex = 0;
+              messages = chats[0].messages.slice();
+            }
+            updateChatSessionsList();
+            renderCurrentChat();
+            saveChats();
+          }
+        });
+        li.appendChild(deleteBtn);
         list.appendChild(li);
       });
     }
-
     function renderCurrentChat() {
       const chatBox = document.getElementById("chat-box");
       chatBox.innerHTML = "";
@@ -518,7 +623,28 @@
       });
     }
 
-    // Engine progress callback.
+    /***** Automatic Summarization *****/
+    async function summarizeChat() {
+      const summaryPrompt = "Provide a concise title summarizing the following conversation:\n" +
+          messages.map(m => m.role + ": " + m.content).join("\n");
+      const summaryMessages = [
+        { role: "system", content: "You are a helpful assistant that summarizes conversations in a short title." },
+        { role: "user", content: summaryPrompt }
+      ];
+      try {
+        const completion = await engine.chat.completions.create({ messages: summaryMessages });
+        const summary = completion.choices[0]?.message?.content.trim();
+        if(summary) {
+          chats[currentChatIndex].label = summary;
+          updateChatSessionsList();
+          saveChats();
+        }
+      } catch(e) {
+        console.error("Error summarizing chat:", e);
+      }
+    }
+
+    /***** Engine Progress & Initialization *****/
     function updateEngineInitProgressCallback(report) {
       let statusText = "";
       const spinnerHTML = '<span class="spinner"></span>';
@@ -550,7 +676,6 @@
       }
     }
     engine.setInitProgressCallback(updateEngineInitProgressCallback);
-
     async function initializeWebLLMEngine() {
       downloadStartTime = Date.now();
       document.getElementById("download-status").classList.remove("hidden");
@@ -562,7 +687,6 @@
       const config = { temperature, top_p };
       await engine.reload(selectedModel, config);
     }
-
     window.addEventListener("load", async () => {
       while (!webllm.prebuiltAppConfig ||
              !webllm.prebuiltAppConfig.model_list ||
@@ -573,9 +697,11 @@
       await initializeWebLLMEngine();
       document.getElementById("send").disabled = false;
       document.getElementById("stop").disabled = false;
-      addNewChat("New Chat");
+      loadChats();
+      if(chats.length === 0) {
+        addNewChat("New Chat");
+      }
     });
-
     function populateModelSelection() {
       const modelSelect = document.getElementById("model-selection");
       availableModels.forEach((modelId) => {
@@ -586,7 +712,6 @@
       });
       modelSelect.value = selectedModel;
     }
-
     function updateDownloadedModelsList() {
       const list = document.getElementById("downloaded-models");
       list.innerHTML = "";
@@ -597,7 +722,7 @@
       });
     }
 
-    // Streaming generation with stop support.
+    /***** Streaming Generation with Tool Call Handling *****/
     async function streamingGenerating(streamMessages, onUpdate, onFinish, onError) {
       isStreaming = true;
       stopRequested = false;
@@ -628,7 +753,6 @@
         }
       }
     }
-
     function onMessageSend() {
       const input = document.getElementById("user-input").value.trim();
       if(input.length === 0) return;
@@ -645,12 +769,14 @@
         streamMessages,
         (partialResponse) => { updateLastMessage(partialResponse); },
         (finalMessage) => {
+          // Process tool calls in the final message.
+          finalMessage = handleToolCalls(finalMessage);
           updateLastMessage(finalMessage);
           messages.push({ role: "assistant", content: finalMessage });
           document.getElementById("send").disabled = false;
-          if(currentChatIndex >= 0 && chats[currentChatIndex].label === "New Chat") {
-            autoLabelChat(finalMessage);
-          }
+          chats[currentChatIndex].messages = messages.slice();
+          saveChats();
+          summarizeChat();
         },
         (err) => {
           console.error(err);
@@ -659,8 +785,6 @@
         }
       );
     }
-
-    // Stop streaming mid-response.
     function onStop() {
       if(isStreaming && abortController) {
         stopRequested = true;
@@ -668,7 +792,6 @@
         document.getElementById("send").disabled = false;
       }
     }
-
     async function loadModel() {
       selectedModel = document.getElementById("model-selection").value;
       downloadStartTime = Date.now();
@@ -683,8 +806,6 @@
       statusEl.classList.remove("hidden");
       await initializeWebLLMEngine();
     }
-
-    // Export chat to a text file.
     function exportChat() {
       const dataStr = "data:text/plain;charset=utf-8," + encodeURIComponent(
         messages.map(m => `${m.role}: ${m.content}`).join("\n")
@@ -697,12 +818,35 @@
       downloadAnchorNode.remove();
     }
 
+    /***** File Upload Handling *****/
+    document.getElementById("upload-file").addEventListener("click", () => {
+      document.getElementById("file-upload").click();
+    });
+    document.getElementById("file-upload").addEventListener("change", (event) => {
+      const file = event.target.files[0];
+      if(file) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          const content = e.target.result;
+          uploadedDocument = content;
+          const uploadMsg = { role: "user", content: "Uploaded file (" + file.name + "):\n" + content };
+          messages.push(uploadMsg);
+          appendMessage(uploadMsg, false, messages.length - 1);
+          chats[currentChatIndex].messages = messages.slice();
+          saveChats();
+        };
+        reader.readAsText(file);
+      }
+    });
+
+    /***** Event Listeners *****/
     document.getElementById("send").addEventListener("click", onMessageSend);
     document.getElementById("stop").addEventListener("click", onStop);
     document.getElementById("clear-chat").addEventListener("click", clearChat);
     document.getElementById("load-model").addEventListener("click", loadModel);
     document.getElementById("export-chat").addEventListener("click", exportChat);
     document.getElementById("new-chat-btn").addEventListener("click", () => addNewChat("New Chat"));
+    document.getElementById("summarize-chat").addEventListener("click", summarizeChat);
   </script>
 </body>
 </html>
